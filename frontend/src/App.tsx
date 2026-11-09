@@ -1,19 +1,24 @@
-import { Route, Routes } from 'react-router-dom'
-
-function Placeholder({ title }: { title: string }) {
-  return (
-    <main className="mx-auto max-w-3xl p-6">
-      <h1 className="text-2xl font-semibold text-slate-900">{title}</h1>
-    </main>
-  )
-}
+import { Navigate, Route, Routes } from 'react-router-dom'
+import { ToastProvider } from './components/Toast'
+import { StudentProvider } from './hooks/useStudent'
+import { AppLayout } from './layouts/AppLayout'
+import AdminPage from './pages/AdminPage'
+import DashboardPage from './pages/DashboardPage'
+import LandingPage from './pages/LandingPage'
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<Placeholder title="School Admission Portal" />} />
-      <Route path="/dashboard" element={<Placeholder title="Parent Dashboard" />} />
-      <Route path="/admin" element={<Placeholder title="Admin Dashboard" />} />
-    </Routes>
+    <StudentProvider>
+      <ToastProvider>
+        <Routes>
+          <Route element={<AppLayout />}>
+            <Route path="/" element={<LandingPage />} />
+            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/admin" element={<AdminPage />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Route>
+        </Routes>
+      </ToastProvider>
+    </StudentProvider>
   )
 }

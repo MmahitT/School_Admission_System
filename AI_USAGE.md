@@ -41,3 +41,11 @@ To be filled in: what was manually read, run, and verified (with commands and re
   3. Default Npgsql pool settings left thin margin for 1,000 simultaneous requests; pool limits made explicit (A21).
 - Verified by running: `dotnet test` (90 tests; unit tests use a fake repository, integration and concurrency tests use real PostgreSQL), the concurrency tests six times in a row, and a curl walk-through of all 8 endpoints through nginx in Docker.
 - Observed but not explained: one of six repeated concurrency runs took 21 s instead of ~2 s (all passed). Not yet investigated.
+
+## Phase 4 (frontend)
+- AI wrote the whole React app and its tests: `frontend/src/{api,components,features,hooks,layouts,pages,utils,test}/*`, `App.tsx`.
+- Incorrect AI output found and fixed:
+  1. The test helper wrapped the element in providers, so `rerender()` dropped them and a countdown test crashed; changed to the `wrapper` option.
+  2. The first countdown displayed `10:01` for a 600 s hold. Found only by driving the real UI in Chrome (not by the unit tests): the HTTP `Date` header is truncated to whole seconds, so the server-clock offset was up to 1 s off. Fixed by centring the offset and flooring the display (A24).
+- Verified by running: `npm test` (65 tests), `tsc -b`, `npm run build`, and a Playwright script (system Chrome, kept outside the repo) that drove the Docker stack end to end: admin creates a class and sees validation, invalid/valid student id, apply, countdown, reload restore, simulated payment, fresh-browser restore from the database, cancel. No console errors.
+- Not verified yet: real expiry in the browser (needs a short `HOLD_DURATION_SECONDS`, Phase 5), screenshots below ~500 px width (headless Chrome's minimum window), and screen-reader behaviour (only roles/labels checked via tests).
