@@ -30,7 +30,8 @@ docker compose up --build            # whole stack on http://localhost:8080
 dotnet build backend                 # build
 dotnet test backend                  # unit + integration + concurrency (needs Docker for Testcontainers)
 cd frontend && npm ci && npm run dev # dev server :5173
-cd frontend && npm test              # Vitest
+cd frontend && npm test              # Vitest (npx vitest run --coverage for coverage)
+cd frontend && npm run lint && npx tsc -b
 ```
 
 ## Conventions

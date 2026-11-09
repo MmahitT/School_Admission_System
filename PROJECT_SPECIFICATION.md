@@ -178,6 +178,24 @@ Routes: `/` (landing + student id), `/dashboard` (parent: classes + my applicati
 - **Frontend (Vitest + RTL, MSW):** student-id validation, class list, apply flow, countdown, expiration state, payment, error messages, admin create form.
 - Rule: results are only reported after the commands actually ran, with their real output.
 
+### 9.1 Test inventory (as built, Phase 6)
+
+| Spec requirement (§12) | Where it is tested |
+|---|---|
+| Valid / invalid class creation | `Unit/ClassServiceTests`, `Integration/ApiLifecycleTests`, `CreateClassForm.test` |
+| Valid / invalid student identifier | `Unit/ClassServiceTests` (rule), `Unit/HoldServiceTests`, `Database/SchemaConstraintTests` (DB CHECK), `ApiHardeningTests`, `StudentIdForm.test`, `utils.test` |
+| Reservation succeeds / no seats / duplicate / active-hold conflict | `Unit/HoldServiceTests`, `ApiLifecycleTests`, `RepositoryAndTransactionTests` (DB backstops → same errors) |
+| Confirmation, idempotent re-confirmation, expired/cancelled rejection | `Unit/HoldServiceTests`, `ApiLifecycleTests`, `ConcurrencyTests` (30 parallel confirms) |
+| Cancellation, application retrieval, seat-count correctness | `Unit/*`, `ApiLifecycleTests`, `ConcurrencyTests` (counts sampled during a burst) |
+| API responses, persistence, lifecycle, ownership | `Integration/ApiLifecycleTests`, `SchemaConstraintTests` (fresh context reads) |
+| Transaction correctness | `RepositoryAndTransactionTests` (commit, rollback, row lock blocks, per-class independence) |
+| **Mandatory concurrency (10 seats, 100+ requests)** | `ConcurrencyTests`: 120→10, 1000→120, mid-burst sampling (150→10), same student ×25, same student ×8 classes, mixed confirm+apply |
+| Concurrent confirmation and expiration | `ExpirationTests`: 80 simultaneous confirm-vs-sweep contests; apply-vs-sweeper; real-time loop; failing sweep |
+| Frontend: ID validation, listing, apply, countdown, expiry, payment, errors, admin create | `StudentIdForm.test`, `ClassList.test`, `MyApplications.test`, `Dashboard.test` (fake-timer live expiry + polling), `CreateClassForm.test`, `api/*.test`, `components.test`, `App.test` |
+
+Test sensitivity was checked by mutation: with the seat-count query and the capacity trigger both disabled, 4 of 7 concurrency tests fail (120 holds created for 10 seats); with time-based expiry disabled or the poll timer left running, the corresponding frontend tests fail.
+
+
 ## 10. Implementation roadmap
 
 Each phase ends with: summary, files changed, tests run with real output, open issues, **then I stop and wait for approval**. Git commits are made per logical unit within each phase (the directory is not yet a git repo; I will `git init` in Phase 1).
