@@ -24,3 +24,11 @@ To be filled in: what was manually read, run, and verified (with commands and re
 - AI scaffolded the .NET solution, Vite app, Dockerfiles, compose and nginx config. Files: `backend/*`, `frontend/*`, `docker-compose.yml`, `.env.example`, `.gitignore`.
 - Issues caught during the phase: (1) first nginx draft included a non-existent `proxy_params.inc`; replaced by inline proxy headers. (2) Vite's template produced React 19 and TypeScript 7 (spec requires React 18+, so accepted). (3) zsh glob expansion broke `--version 8.0.*` NuGet arguments; fixed by quoting.
 - Verified by running: `dotnet build`, `npm run build`, `npm test`, `docker compose up --build`, and curl against `/`, `/dashboard`, `/health`, `/api/health`.
+
+## Phase 2 (database and domain)
+- AI wrote the entities, EF configurations, the `InitialCreate` migration (with hand-written SQL for the capacity trigger and the case-insensitive name index), the DB initializer and `SchemaConstraintTests`. Files: `backend/SchoolAdmission.Domain/*`, `backend/SchoolAdmission.Infrastructure/Persistence/*`, `backend/SchoolAdmission.Tests/Database/*`, `backend/SchoolAdmission.Tests/Support/*`.
+- Incorrect AI output found and fixed:
+  1. EF Core silently merged the plain `student_id` index with the filtered unique index on the same column, so the required `student_id` index was missing. Found by listing `pg_indexes` in the running database (not by the compiler); fixed with raw SQL in the migration plus a test (`Required_indexes_exist`).
+  2. Floating package versions (`8.0.*`) produced an EF Core version-conflict warning; pinned all versions.
+  3. A test expected SQLSTATE 23514 for an 18-digit student id, but `character(17)` rejects it earlier with 22001; test corrected (the database still rejects it).
+- Verified by running: `dotnet test` (28 tests against real PostgreSQL via Testcontainers), `dotnet ef migrations has-pending-model-changes`, and a `psql` insert surviving `docker compose down` / `up`.
