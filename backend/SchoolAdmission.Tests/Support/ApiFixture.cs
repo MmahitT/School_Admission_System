@@ -23,6 +23,7 @@ public sealed class ApiFixture : IAsyncLifetime
 
     public FakeTimeProvider Clock { get; } = new(new DateTimeOffset(2026, 11, 1, 4, 0, 0, TimeSpan.Zero));
     public HttpClient Client { get; private set; } = null!;
+    public IServiceProvider Services => _factory.Services;
 
     public async Task InitializeAsync()
     {
@@ -31,6 +32,8 @@ public sealed class ApiFixture : IAsyncLifetime
         {
             b.UseSetting("ConnectionStrings:DefaultConnection", _pg.ConnectionString);
             b.UseSetting("HOLD_DURATION_SECONDS", HoldSeconds.ToString());
+            // The sweeper is exercised explicitly in ExpirationTests; keep it off so timing tests are deterministic.
+            b.UseSetting("DisableExpirationSweeper", "true");
             b.ConfigureServices(s => s.Replace(ServiceDescriptor.Singleton<TimeProvider>(Clock)));
         });
         Client = _factory.CreateClient();

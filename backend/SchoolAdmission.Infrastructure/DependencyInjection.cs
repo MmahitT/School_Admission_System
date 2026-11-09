@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using SchoolAdmission.Application.Abstractions;
+using SchoolAdmission.Infrastructure.BackgroundServices;
 using SchoolAdmission.Infrastructure.Persistence;
 
 namespace SchoolAdmission.Infrastructure;
@@ -28,6 +29,10 @@ public static class DependencyInjection
 
         services.AddScoped<IAdmissionRepository, AdmissionRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
+
+        // Tests that need full control over expiry timing turn the sweeper off.
+        if (!configuration.GetValue("DisableExpirationSweeper", false))
+            services.AddHostedService<HoldExpirationService>();
 
         return services;
     }

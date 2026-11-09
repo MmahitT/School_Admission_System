@@ -4,7 +4,7 @@ using SchoolAdmission.Domain.Entities;
 namespace SchoolAdmission.Tests.Support;
 
 /// <summary>In-memory stand-in used only for unit-testing service rules (no concurrency semantics).</summary>
-public sealed class FakeAdmissionRepository : IAdmissionRepository, IUnitOfWork
+public class FakeAdmissionRepository : IAdmissionRepository, IUnitOfWork
 {
     public List<AdmissionClass> Classes { get; } = [];
     public List<AdmissionHold> Holds { get; } = [];
@@ -32,7 +32,7 @@ public sealed class FakeAdmissionRepository : IAdmissionRepository, IUnitOfWork
         return stale.Count;
     }
 
-    public Task<int> ExpireStaleHoldsAsync(DateTime now, CancellationToken ct) => Task.FromResult(Expire(_ => true, now));
+    public virtual Task<int> ExpireStaleHoldsAsync(DateTime now, CancellationToken ct) => Task.FromResult(Expire(_ => true, now));
     public Task<int> ExpireStaleHoldsAsync(DateTime now, Guid classId, string studentId, CancellationToken ct) =>
         Task.FromResult(Expire(h => h.ClassId == classId || h.StudentId == studentId, now));
     public Task<int> ExpireStaleHoldsForStudentAsync(DateTime now, string studentId, CancellationToken ct) =>

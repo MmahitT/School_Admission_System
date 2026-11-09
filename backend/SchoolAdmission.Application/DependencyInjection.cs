@@ -15,6 +15,12 @@ public static class DependencyInjection
             .Validate(o => o.HoldDurationSeconds > 0, $"{AdmissionOptions.HoldDurationKey} must be a positive integer.")
             .ValidateOnStart();
 
+        services.AddOptions<ExpirationOptions>()
+            .Configure(o => o.SweepIntervalSeconds =
+                configuration.GetValue(ExpirationOptions.SweepIntervalKey, o.SweepIntervalSeconds))
+            .Validate(o => o.SweepIntervalSeconds > 0, $"{ExpirationOptions.SweepIntervalKey} must be a positive integer.")
+            .ValidateOnStart();
+
         services.AddSingleton(TimeProvider.System);
         services.AddScoped<IClassService, ClassService>();
         services.AddScoped<IHoldService, HoldService>();
