@@ -2,9 +2,18 @@ using Microsoft.AspNetCore.Mvc;
 using SchoolAdmission.API.Infrastructure;
 using SchoolAdmission.Application;
 using SchoolAdmission.Infrastructure;
+using SchoolAdmission.Infrastructure.Configuration;
 using SchoolAdmission.Infrastructure.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Fail fast, before building any service, with a clear message that never contains a secret.
+var configurationProblems = EnvironmentValidator.Validate(builder.Configuration);
+if (configurationProblems.Count > 0)
+{
+    Console.Error.WriteLine(EnvironmentValidator.Format(configurationProblems));
+    return 1;
+}
 
 builder.Services
     .AddControllers()
@@ -47,6 +56,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapControllers();
 
 app.Run();
+return 0;
 
 // Exposed for WebApplicationFactory in integration tests.
 public partial class Program;
