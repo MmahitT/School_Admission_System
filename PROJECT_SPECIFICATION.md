@@ -220,3 +220,21 @@ Each phase ends with: summary, files changed, tests run with real output, open i
 | D3 | **API reachable both at `/api/...` and at the bare spec paths** (`/classes`, `/holds`, `/me/holds`) on :8080 via nginx, so a grader using either form works. SPA routes avoid those names. |
 | D4 | **Defense-in-depth Postgres trigger** for capacity in addition to row locking. |
 | D5 | **Error codes**: 400 for all input validation, 403 for non-owner, 409 for business conflicts; 422 unused unless you want it for semantic body errors. |
+
+## 12. Acceptance evidence (Phase 7)
+
+All checks were run against a stack built from a fresh `git clone` of the pushed repository (empty Docker build cache, empty database volume, `cp .env.example .env`, `docker compose up --build`).
+
+| Check | How | Result |
+|---|---|---|
+| Cold start | `docker compose up --build -d` after pruning the build cache | ~2m46s; db, backend (migrations applied) and frontend all healthy; only port 8080 published |
+| Every endpoint (all 8, plus `/api/...` and bare paths) incl. error codes, ownership, idempotent confirm, cancellation rules | `scripts/acceptance.sh` (bash + curl) | 55 checks, 0 failed |
+| No overbooking under load | same script: 120 parallel `curl` processes through nginx, 10 seats | exactly 10 × 201, 110 × 409, 0 other; held = 10, available = 0 |
+| Real expiry | `EXPIRY_TEST=1` with `HOLD_DURATION_SECONDS=15`, sweeper 2 s | 62 checks, 0 failed: hold becomes EXPIRED by itself, confirm → 409, seat reusable |
+| Full UI flow in Chrome | Playwright (kept outside the repo) | admin create + validation, invalid/valid student id, apply, countdown, reload restore, simulated payment, restore from DB in a fresh browser, cancel; no console errors |
+| UI expiry | same, 15 s hold | UI flipped to EXPIRED with no reload; timer gone; Pay disabled; message shown; seat freed |
+| 6 browsers click "Confirm application" simultaneously on a 1-seat class | Playwright, 6 separate contexts | 1 reservation, 5 told "No seats are currently available for this class."; server held=1, available=0 |
+| Persistence | `docker compose down` then `docker compose up --build` (no `-v`) | 10 classes / 31 holds / 3 confirmed admissions intact; time-expired HELD rows normalized to EXPIRED by the startup sweep |
+| Hygiene | logs, ports, user, secrets scan | backend runs non-root; db/backend not published; no 5xx in nginx log; no `.env`, `node_modules`, `dist`, `bin`, `obj` tracked; no credentials in source |
+
+Known limitation found: `docker compose up --build` without first creating `.env` stops with a clear message ("Set POSTGRES_PASSWORD in .env") because the database password is deliberately not hard-coded. See README (Phase 8) and the decision noted in the Phase 7 report.

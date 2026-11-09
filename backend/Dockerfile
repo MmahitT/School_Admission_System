@@ -15,7 +15,7 @@ FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 COPY --from=build /app .
-ENV ASPNETCORE_URLS=http://+:8080
+# The aspnet:8 image already listens on 8080 (ASPNETCORE_HTTP_PORTS).
 EXPOSE 8080
 USER $APP_UID
 ENTRYPOINT ["dotnet", "SchoolAdmission.API.dll"]

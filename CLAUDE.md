@@ -32,6 +32,8 @@ dotnet test backend                  # unit + integration + concurrency (needs D
 cd frontend && npm ci && npm run dev # dev server :5173
 cd frontend && npm test              # Vitest (npx vitest run --coverage for coverage)
 cd frontend && npm run lint && npx tsc -b
+./scripts/acceptance.sh              # black-box API/concurrency checks against a running stack (bash+curl)
+EXPIRY_TEST=1 ./scripts/acceptance.sh # also waits for a real expiry (start backend with a short HOLD_DURATION_SECONDS)
 ```
 
 ## Conventions
