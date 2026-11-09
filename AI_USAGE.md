@@ -32,3 +32,12 @@ To be filled in: what was manually read, run, and verified (with commands and re
   2. Floating package versions (`8.0.*`) produced an EF Core version-conflict warning; pinned all versions.
   3. A test expected SQLSTATE 23514 for an 18-digit student id, but `character(17)` rejects it earlier with 22001; test corrected (the database still rejects it).
 - Verified by running: `dotnet test` (28 tests against real PostgreSQL via Testcontainers), `dotnet ef migrations has-pending-model-changes`, and a `psql` insert surviving `docker compose down` / `up`.
+
+## Phase 3 (backend)
+- AI wrote the Application services, repository/unit of work, controllers, exception handler and all tests: `backend/SchoolAdmission.Application/*`, `backend/SchoolAdmission.Infrastructure/Persistence/{AdmissionRepository,UnitOfWork}.cs`, `backend/SchoolAdmission.API/*`, `backend/SchoolAdmission.Tests/{Unit,Integration,Support}/*`.
+- Incorrect AI output found and fixed:
+  1. The seat query filtered on a constructor-built record projection; EF could not translate it and every `GET /classes/{id}` returned 500. Found by the integration tests (11 failed on the first run); fixed by filtering the entity query before projecting.
+  2. Throwing inside the confirm transaction would have rolled back the "mark EXPIRED" write; the service now returns an outcome and throws after commit (A23).
+  3. Default Npgsql pool settings left thin margin for 1,000 simultaneous requests; pool limits made explicit (A21).
+- Verified by running: `dotnet test` (90 tests; unit tests use a fake repository, integration and concurrency tests use real PostgreSQL), the concurrency tests six times in a row, and a curl walk-through of all 8 endpoints through nginx in Docker.
+- Observed but not explained: one of six repeated concurrency runs took 21 s instead of ~2 s (all passed). Not yet investigated.
