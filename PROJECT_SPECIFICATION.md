@@ -235,18 +235,63 @@ Each phase ends with: summary, files changed, tests run with real output, open i
 
 ## 13. Acceptance evidence
 
-All checks were run against a stack built from a fresh `git clone` of the pushed repository (empty Docker build cache, empty database volume, `cp .env.example .env`, `docker compose up --build`).
+### 13.1 How it was verified
+
+The final checks were run against a stack built from a **fresh `git clone` of the pushed repository** (commit `7e92533`;
+the later commits change only documentation and `scripts/security-check.sh`): empty Docker build cache, empty database
+volume, `cp .env.example .env`, a generated password, `docker compose up --build`. Host: macOS, Docker Desktop.
 
 | Check | How | Result |
 |---|---|---|
-| Cold start | `docker compose up --build -d` after pruning the build cache | ~2m46s; db, backend (migrations applied) and frontend all healthy; only port 8080 published |
-| Every endpoint (all 8, plus `/api/...` and bare paths) incl. error codes, ownership, idempotent confirm, cancellation rules | `scripts/acceptance.sh` (bash + curl) | 55 checks, 0 failed |
-| No overbooking under load | same script: 120 parallel `curl` processes through nginx, 10 seats | exactly 10 × 201, 110 × 409, 0 other; held = 10, available = 0 |
-| Real expiry | `EXPIRY_TEST=1` with `HOLD_DURATION_SECONDS=15`, sweeper 2 s | 62 checks, 0 failed: hold becomes EXPIRED by itself, confirm → 409, seat reusable |
-| Full UI flow in Chrome | Playwright (kept outside the repo) | admin create + validation, invalid/valid student id, apply, countdown, reload restore, simulated payment, restore from DB in a fresh browser, cancel; no console errors |
+| Fail-fast without configuration | `docker compose up --build` with no `.env` | Stops with `required variable POSTGRES_DB is missing a value … Run 'cp .env.example .env'`; also tested with an empty password and a missing user |
+| Cold start | `docker compose up --build -d` after pruning the build cache | 48 s with base images cached (2m46s on the earlier fully cold run); db, backend (migrations applied) and frontend healthy; only port 8080 published |
+| Every endpoint (all 8, via `/api/...` and the bare paths), error codes, ownership, idempotent confirm, cancellation rules | `scripts/acceptance.sh` (bash + curl) | 55 checks, 0 failed |
+| No overbooking under load | same script: 120 parallel `curl` processes through nginx against 10 seats | exactly 10 × 201, 110 × 409, 0 other; held = 10, available = 0 |
+| Real expiry | `EXPIRY_TEST=1`, `HOLD_DURATION_SECONDS=15`, sweeper 2 s | 62 checks, 0 failed (hold becomes EXPIRED by itself, confirm → 409, seat reusable) |
+| Full UI flow in Chrome | Playwright, kept outside the repo | admin create + validation, invalid/valid student id, apply, countdown, reload restore, simulated payment, restore from the database in a fresh browser, cancel; no console errors, including under the strict CSP |
 | UI expiry | same, 15 s hold | UI flipped to EXPIRED with no reload; timer gone; Pay disabled; message shown; seat freed |
-| 6 browsers click "Confirm application" simultaneously on a 1-seat class | Playwright, 6 separate contexts | 1 reservation, 5 told "No seats are currently available for this class."; server held=1, available=0 |
-| Persistence | `docker compose down` then `docker compose up --build` (no `-v`) | 10 classes / 31 holds / 3 confirmed admissions intact; time-expired HELD rows normalized to EXPIRED by the startup sweep |
-| Hygiene | logs, ports, user, secrets scan | backend runs non-root; db/backend not published; no 5xx in nginx log; no `.env`, `node_modules`, `dist`, `bin`, `obj` tracked; no credentials in source |
+| 6 browsers press "Confirm application" at once on a 1-seat class | Playwright, 6 separate contexts | 1 reservation; 5 told "No seats are currently available for this class."; server held = 1, available = 0 |
+| Persistence | `docker compose down` then `docker compose up --build` (no `-v`) | 7 classes / 19 holds / 2 confirmed before and after: identical |
+| Backend and tests with Docker only | README commands, verbatim | backend 136 passed; frontend 92 passed |
+| Secrets | `scripts/security-check.sh` | 26 checks, 0 failed (tracked files, ignore rules, all history, the real password absent from git and from everything nginx serves, frontend container holds no secrets, only port 8080 published, security headers present). The scanner was first proved to detect planted secrets, including one present only in history |
+| Hygiene | logs, user | backend runs non-root; no warnings at start; quiet idle log; no 5xx in the nginx log |
 
-Known limitation found: `docker compose up --build` without first creating `.env` stops with a clear message ("Set POSTGRES_PASSWORD in .env") because the database password is deliberately not hard-coded. See README (Phase 8) and the decision noted in the Phase 7 report.
+Automated suites: **136 backend** tests (real PostgreSQL) and **92 frontend** tests pass, repeated several times; type-check, lint and
+production build are clean. See §9.1 for the test map and the mutation checks showing the tests can fail.
+
+### 13.2 Final acceptance criteria (assignment §18)
+
+| # | Criterion | Evidence |
+|---|---|---|
+| 1 | Admin can create classes through the UI | Playwright admin flow; `CreateClassForm.test` |
+| 2 | Admin can define seat capacity | same (seats field, validated 1–100,000) |
+| 3 | Parents can enter a 17-digit student identifier | `StudentIdForm.test`; Playwright (invalid, then valid) |
+| 4 | Parents can view all classes and seat availability | `ClassList.test`, `Dashboard.test`; screenshots |
+| 5 | Parents can apply for admission | Playwright; `ClassList.test` |
+| 6 | A successful application creates a temporary reservation | acceptance `[3]` (201, HELD, UTC `expiresAt`); countdown in the UI |
+| 7 | The system prevents overbooking | 120 → 10 and 1,000 → 120 tests; acceptance burst; DB constraints and trigger; mutation check |
+| 8 | Simultaneous requests are processed safely | `ConcurrencyTests` (7), `ExpirationTests` (6), 120 parallel curls, 6 parallel browsers |
+| 9 | A student cannot have multiple active holds | `ACTIVE_HOLD_EXISTS` in acceptance; same-student concurrency tests (25 requests; 8 classes at once) |
+| 10 | A student cannot apply to the same class repeatedly | `ALREADY_APPLIED` in acceptance; partial unique index tests |
+| 11 | Reservations expire automatically | `ExpirationTests`; `EXPIRY_TEST` run; UI flip without reload |
+| 12 | Expired seats become available again | acceptance `[5]`; Playwright (second student takes the seat) |
+| 13 | Parents can confirm admission through simulated payment | Playwright; acceptance; `MyApplications.test` |
+| 14 | Confirmation is idempotent | acceptance (repeat confirms); 30 concurrent confirms leave `confirmedSeats = 1` |
+| 15 | Parents can cancel eligible reservations | acceptance (204, idempotent; confirmed → 409); Playwright |
+| 16 | Students can view their applications | `GET /me/holds` in acceptance; dashboard |
+| 17 | Student applications survive browser refresh | Playwright: reload, and a fresh browser with the same id |
+| 18 | Application data survives Docker restarts | `down` / `up --build` comparison above; backend-down-during-expiry check (Phase 5) |
+| 19 | The frontend updates reservation status automatically | `Dashboard.test` (fake-timer polling and live expiry); Playwright expiry |
+| 20 | All eight required API endpoints work | acceptance `[2]`–`[3]` (55 checks) |
+| 21 | Automated backend and frontend tests pass | 136 + 92, repeated; Docker-only commands also pass |
+| 22 | PostgreSQL concurrency tests demonstrate no overbooking | `ConcurrencyTests` on real PostgreSQL; mutation check |
+| 23 | Docker Compose starts the complete application | `docker compose up --build` from a fresh clone, after `cp .env.example .env` and setting the password (by design, D6) |
+| 24 | The application opens at http://localhost:8080 | acceptance `[1]`; Playwright |
+| 25 | README.md, ASSUMPTIONS.md and AI_USAGE.md are complete | see the three files; README commands were executed as written |
+
+### 13.3 Known limitations
+
+- No authentication (excluded by the assignment); any student number can be used and the admin page is open. Not for public exposure.
+- No rate limiting, TLS or secret manager; single backend instance.
+- Verified on macOS with Docker Desktop only; the bash scripts were run with macOS bash 3.2 and curl.
+- `docker compose` commands (including `down`) need a `.env` with the three required values.

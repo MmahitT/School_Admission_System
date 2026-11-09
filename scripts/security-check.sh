@@ -21,8 +21,9 @@ skip() { SKIP=$((SKIP + 1)); printf '  SKIP  %s\n' "$1"; }
 GENERIC='(password|passwd|pwd|secret|api[_-]?key|access[_-]?key|token)[A-Za-z_]*[[:space:]]*[=:][[:space:]]*["'"'"']?[A-Za-z0-9/+_.-]{8,}'
 # High-confidence provider/format patterns.
 SPECIFIC='-----BEGIN [A-Z ]*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|sk-[A-Za-z0-9]{32,}|eyJ[A-Za-z0-9_-]{15,}\.eyJ[A-Za-z0-9_-]{15,}'
-# Lines that are known, documented placeholders (the example file once shipped a placeholder password).
-ALLOW='change_me|CHANGE_ME|<[a-z ]+>|\$\{[A-Z_]+'
+# Lines that are known, documented placeholders: an early .env.example password placeholder, the README's example
+# token, and this script's own canary (an early commit holds it as a literal; history cannot be rewritten).
+ALLOW='change_me|CHANGE_ME|<[a-z ]+>|\$\{[A-Z_]+|choose-a-password|Abcd1234efgh|canary_key='
 # Test code uses throwaway literals on purpose.
 EXCLUDE=(':!backend/SchoolAdmission.Tests' ':!*package-lock.json')
 
@@ -30,8 +31,9 @@ TMP_TREE="$(mktemp)"; TMP_HIST="$(mktemp)"; TMP_ERR="$(mktemp)"
 trap 'rm -f "$TMP_TREE" "$TMP_HIST" "$TMP_ERR"' EXIT
 
 echo "[0] Scanner self-test (the patterns must detect known fake secrets)"
-canary_generic='db_password = "Abcd1234efgh"'
-canary_key='-----BEGIN RSA PRIVATE KEY-----'
+# Assembled at run time so this file itself contains no secret-looking literal.
+canary_generic="db_pass""word = \"Abcd1234""efgh\""
+canary_key="-----BEGIN RSA ""PRIVATE KEY-----"
 printf '%s\n' "$canary_generic" | grep -qE -e "$GENERIC" && ok "generic secret pattern detects a canary assignment" || bad "generic pattern failed its canary - results below are NOT trustworthy"
 printf '%s\n' "$canary_key"     | grep -qE -e "$SPECIFIC" && ok "private-key pattern detects a canary header" || bad "private-key pattern failed its canary - results below are NOT trustworthy"
 printf '%s\n' 'POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?x}' | grep -qE -e "$GENERIC" && printf '%s\n' 'POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?x}' | grep -qvE -e "$ALLOW" && bad "allow-list failed to exempt a variable reference" || ok "variable references are not reported as secrets"

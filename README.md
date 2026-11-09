@@ -375,11 +375,12 @@ docker compose up -d backend                   # back to the values in .env
 Requires the .NET 8 SDK, Node 20+, and a PostgreSQL you can reach. For example, a throwaway database:
 
 ```bash
+DEVPW=$(openssl rand -hex 12)        # a throwaway password, used only for this local container
 docker run -d --name dev-pg -e POSTGRES_DB=devdb -e POSTGRES_USER=dev \
-  -e POSTGRES_PASSWORD=choose-a-password -p 55432:5432 postgres:16-alpine
+  -e POSTGRES_PASSWORD="$DEVPW" -p 55432:5432 postgres:16-alpine
 
 # Backend on http://localhost:5080 (not 5000: macOS uses it for AirPlay)
-ConnectionStrings__DefaultConnection="Host=localhost;Port=55432;Database=devdb;Username=dev;Password=choose-a-password" \
+ConnectionStrings__DefaultConnection="Host=localhost;Port=55432;Database=devdb;Username=dev;Password=$DEVPW" \
   dotnet run --project backend/SchoolAdmission.API --urls http://localhost:5080 --no-launch-profile
 
 # Frontend (separate terminal): http://localhost:5173, proxying /api to the backend
