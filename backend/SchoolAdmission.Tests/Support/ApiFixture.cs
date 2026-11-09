@@ -25,6 +25,9 @@ public sealed class ApiFixture : IAsyncLifetime
     public HttpClient Client { get; private set; } = null!;
     public IServiceProvider Services => _factory.Services;
 
+    /// <summary>A client for the same app with extra configuration (e.g. a throwing service, CORS origins).</summary>
+    public HttpClient CreateClient(Action<IWebHostBuilder> configure) => _factory.WithWebHostBuilder(configure).CreateClient();
+
     public async Task InitializeAsync()
     {
         await _pg.InitializeAsync();

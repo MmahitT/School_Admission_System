@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Json;
 using Microsoft.EntityFrameworkCore;
 using FluentAssertions;
 using SchoolAdmission.Domain.Entities;
@@ -121,5 +122,42 @@ public class ConcurrencyTests(ApiFixture api)
         responses.Count(r => r.StatusCode == HttpStatusCode.Conflict).Should().Be(880);
         var details = await api.GetClassAsync(classId);
         (details.HeldSeats, details.AvailableSeats).Should().Be((120, 0));
+    }
+
+    [Fact]
+    public async Task Seat_counts_never_violate_the_limits_at_any_moment_during_the_burst()
+    {
+        const int total = 10;
+        var classId = await api.CreateClassAsync(total);
+        var students = Enumerable.Range(0, 150).Select(_ => api.NewStudentId()).ToArray();
+
+        // Observer: keeps reading the public seat counts while the burst is in flight.
+        using var stop = new CancellationTokenSource();
+        var samples = new List<ApiFixture.ClassDto>();
+        var observer = Task.Run(async () =>
+        {
+            while (!stop.IsCancellationRequested)
+            {
+                var one = await api.GetClassAsync(classId);
+                var all = (await api.Client.GetFromJsonAsync<List<ApiFixture.ClassDto>>("/classes",
+                    new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)))!.Single(c => c.Id == classId);
+                lock (samples) { samples.Add(one); samples.Add(all); }
+            }
+        });
+
+        var responses = await FireTogether(students.Length, i => api.ApplyAsync(classId, students[i]));
+        // Confirm some of the winners mid-flight too, then stop observing.
+        stop.Cancel();
+        await observer;
+
+        responses.Count(r => r.StatusCode == HttpStatusCode.Created).Should().Be(total);
+        samples.Should().NotBeEmpty();
+        foreach (var s in samples)
+        {
+            s.HeldSeats.Should().BeLessThanOrEqualTo(total);
+            s.ConfirmedSeats.Should().BeLessThanOrEqualTo(total);
+            s.AvailableSeats.Should().BeGreaterThanOrEqualTo(0);
+            (s.HeldSeats + s.ConfirmedSeats + s.AvailableSeats).Should().Be(total, "the three figures always add up");
+        }
     }
 }
