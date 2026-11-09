@@ -11,7 +11,7 @@ export default defineConfig({
     // Dev: forward /api to the backend, mirroring the nginx setup used in Docker.
     proxy: {
       '/api': {
-        target: process.env.DEV_API_TARGET ?? 'http://localhost:5000',
+        target: process.env.DEV_API_TARGET ?? 'http://localhost:5080',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
       },

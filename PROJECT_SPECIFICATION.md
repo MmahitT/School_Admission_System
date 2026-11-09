@@ -1,6 +1,6 @@
 # PROJECT SPECIFICATION — School Admission System
 
-Status: **DRAFT — awaiting approval. No application code has been written.**
+Status: **Final — implemented, tested and delivered.** Written as a plan before any code; sections 1–11 were kept in sync with what was built (see §11 for the decisions made and §12 for deviations from the original plan). §13 lists the acceptance evidence.
 Source of truth: the master specification supplied with the assignment. (The original recruitment PDF was not available to the author of this document; where this file and the PDF disagree, the PDF wins and this file must be corrected.)
 
 ---
@@ -13,7 +13,7 @@ An online admission system for a private school. Each *class/shift* has a fixed 
 
 | Layer | Choice |
 |---|---|
-| Backend | C#, ASP.NET Core Web API, .NET 8 (see decision D1), EF Core + Npgsql, DI, env config |
+| Backend | C#, ASP.NET Core Web API, .NET 8 (decision D1), EF Core + Npgsql, DI, env config |
 | Database | PostgreSQL 16, EF Core migrations, FK/CHECK/unique/partial indexes |
 | Frontend | React 18, TypeScript, Vite, React Router, Axios, Tailwind CSS, Lucide, React Hook Form |
 | Tests | xUnit + FluentAssertions, Testcontainers-PostgreSQL (real DB), Vitest + React Testing Library |
@@ -34,7 +34,7 @@ API ──► Application ──► Domain
 | `SchoolAdmission.Domain` | Entities (`AdmissionClass`, `AdmissionHold`), `HoldStatus` enum, `StudentId` value rules, domain exceptions. No dependencies. |
 | `SchoolAdmission.Application` | DTOs, validators, service interfaces + implementations (`ClassService`, `HoldService`), `IAdmissionRepository`/`IUnitOfWork` abstractions, `TimeProvider`, `AdmissionOptions`, business-error types. |
 | `SchoolAdmission.Infrastructure` | `AdmissionDbContext`, entity configs, migrations, transactional seat allocator (raw SQL `FOR UPDATE`), `HoldExpirationService : BackgroundService`, DB-error mapping (SQLSTATE 23505/23514). |
-| `SchoolAdmission.API` | Thin controllers, `X-Student-Id` binding/validation, global exception middleware (ProblemDetails), CORS, Serilog/`ILogger` logging, health endpoint, DI composition, auto-migration on startup. |
+| `SchoolAdmission.API` | Thin controllers, `X-Student-Id` binding/validation, global exception handler (`IExceptionHandler`, ProblemDetails), CORS, structured `ILogger` logging, health endpoint, DI composition, auto-migration on startup. |
 | `SchoolAdmission.Tests` | Unit tests (fake clock/repo), integration + concurrency tests against real PostgreSQL via Testcontainers. |
 
 Runtime topology (Docker Compose):
@@ -164,7 +164,7 @@ Why this is safe: after step 3 no other allocator for that class can reach step 
 Routes: `/` (landing + student id), `/dashboard` (parent: classes + my applications), `/admin` (create class + utilization table). Student id lives in `localStorage` (`studentId` only); everything else is fetched from the API.
 
 - `src/api/` Axios client (`VITE_API_BASE_URL`, interceptor adds `X-Student-Id`, maps ProblemDetails → user messages).
-- `src/features/{admission,classes,holds,admin}/` components + hooks (React Query-style polling implemented with a small `usePolling` hook; 5 s for classes/holds, 1 s tick for countdown, all cleaned up on unmount, paused when the tab is hidden).
+- `src/features/{admission,classes,holds,admin}/` components + hooks (polling implemented with a small `usePolledResource` hook plus `useServerNow`; 5 s for classes/holds, 1 s tick for countdown, all cleaned up on unmount, paused when the tab is hidden).
 - Shared: `ConfirmDialog`, `PaymentDialog` (explicitly "Simulated payment"), `Toast`, `Skeleton`, `StatusBadge` (HELD/CONFIRMED/EXPIRED/CANCELLED, colour + icon + text for accessibility), `SeatMeter`.
 - Class card states: **Available**, **Limited** (≤ 10 % or ≤ 5 seats), **Fully booked** (apply disabled).
 - Countdown uses `expiresAt − (Date.now() + serverOffset)`; when ≤ 0 the card flips to EXPIRED locally *and* an immediate refetch confirms with the server; Pay button disabled.
@@ -211,17 +211,29 @@ Each phase ends with: summary, files changed, tests run with real output, open i
 | 7 Docker validation | `docker compose up --build`, every endpoint via :8080, `down`/`up` persistence, 100-way concurrency via script | evidence captured |
 | 8 Delivery | README, ASSUMPTIONS, AI_USAGE final, report, repo review | acceptance checklist (spec §18) fully ticked with evidence |
 
-## 11. Decisions needing your confirmation
+## 11. Decisions (all resolved)
 
-| ID | Decision (my recommendation first) |
-|---|---|
-| D1 | **.NET 8.** It is the SDK installed here (8.0.403), so I can build/test locally as well as in Docker. Caveat: .NET 8 LTS support ends 10 Nov 2026. Alternative: .NET 10 LTS (build/test only inside Docker). |
-| D2 | **Re-apply after EXPIRED allowed** (A6). The spec says duplicates are blocked "including after confirmation or cancellation" and its expiry message says "apply again", which is only coherent if expiry doesn't block. |
-| D3 | **API reachable both at `/api/...` and at the bare spec paths** (`/classes`, `/holds`, `/me/holds`) on :8080 via nginx, so a grader using either form works. SPA routes avoid those names. |
-| D4 | **Defense-in-depth Postgres trigger** for capacity in addition to row locking. |
-| D5 | **Error codes**: 400 for all input validation, 403 for non-owner, 409 for business conflicts; 422 unused unless you want it for semantic body errors. |
+| ID | Decision | Outcome |
+|---|---|---|
+| D1 | .NET version | **.NET 8** (SDK available locally; note LTS support ends 10 Nov 2026, moving on is a `TargetFramework` and image-tag change) |
+| D2 | Re-applying to a class after the hold EXPIRED | **Allowed.** CONFIRMED, CANCELLED and HELD applications still block a repeat |
+| D3 | API reachable at `/api/...` and at the bare spec paths | **Both**, through nginx on port 8080 |
+| D4 | Postgres trigger as a capacity backstop in addition to row locking | **Implemented** |
+| D5 | Error codes | **400** validation, **403** not owner, **409** conflicts; 422 unused |
+| D6 | First-run behaviour without a `.env` (raised in Phase 7) | **Fail fast** (project owner chose Option 1): no password default anywhere; Compose and the backend both refuse to start; the README documents `cp .env.example .env` |
 
-## 12. Acceptance evidence (Phase 7)
+## 12. Deviations from the original plan
+
+| Planned | Built | Why |
+|---|---|---|
+| React 18 | React **19** (and TypeScript 7) | The current Vite template; the assignment asks for React 18 or newer |
+| Serilog/`ILogger` | Built-in `ILogger` with structured templates | Sufficient and one dependency fewer |
+| Countdown from a local timer plus polling | Countdown from the server's `expiresAt`, corrected by a clock offset learned from the HTTP `Date` header | Spec: the server must be the source of time; accuracy about ±0.5 s (ASSUMPTIONS A24) |
+| Defaults for all environment variables | No defaults for `POSTGRES_*`; startup validation in Compose and the backend | Security decision D6 / ASSUMPTIONS A28 |
+| Local backend dev port 5000 | **5080** | macOS reserves 5000 for AirPlay (found while verifying the dev instructions) |
+| Tests: unit, integration, concurrency | Also: schema-constraint tests, race tests against the sweeper, mutation checks, black-box scripts | Added during the testing and acceptance phases |
+
+## 13. Acceptance evidence
 
 All checks were run against a stack built from a fresh `git clone` of the pushed repository (empty Docker build cache, empty database volume, `cp .env.example .env`, `docker compose up --build`).
 

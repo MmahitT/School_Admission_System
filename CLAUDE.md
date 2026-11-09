@@ -18,7 +18,7 @@ Take-home assessment: seat-safe online school admission (React + ASP.NET Core + 
 - Expiry is enforced by time predicates in queries **and** by the `BackgroundService`; correctness must not depend on the sweeper.
 - Confirm is idempotent. Student id = exactly 17 digits (`X-Student-Id`), validated in FE, API, and DB CHECK.
 - UTC everywhere; inject `TimeProvider`.
-- No hardcoded credentials/API URL; config via env (`ConnectionStrings__DefaultConnection`, `HOLD_DURATION_SECONDS`, `VITE_API_BASE_URL`, Postgres vars). `.env.example` committed, `.env` ignored.
+- No hardcoded credentials/API URL; config via env (`ConnectionStrings__DefaultConnection`, `HOLD_DURATION_SECONDS`, `VITE_API_BASE_URL`, Postgres vars). `.env.example` committed with an EMPTY password, `.env` and `.env.*` ignored. `POSTGRES_*` are required (Compose and `EnvironmentValidator` fail fast); never add a default password or a committed `.env`. Frontend gets only `VITE_*`.
 - Never use `docker compose down -v` as normal procedure; data persists in the `pgdata` volume.
 - Concurrency tests must use real PostgreSQL (Testcontainers), not EF InMemory.
 - No mock data standing in for the DB; no localStorage as an application database (only `studentId`).
@@ -29,9 +29,10 @@ Take-home assessment: seat-safe online school admission (React + ASP.NET Core + 
 docker compose up --build            # whole stack on http://localhost:8080
 dotnet build backend                 # build
 dotnet test backend                  # unit + integration + concurrency (needs Docker for Testcontainers)
-cd frontend && npm ci && npm run dev # dev server :5173
+cd frontend && npm ci && npm run dev # dev server :5173 (proxies /api to the backend on :5080; macOS uses :5000)
 cd frontend && npm test              # Vitest (npx vitest run --coverage for coverage)
 cd frontend && npm run lint && npx tsc -b
+./scripts/security-check.sh          # secret hygiene: tracked files, git history, running containers
 ./scripts/acceptance.sh              # black-box API/concurrency checks against a running stack (bash+curl)
 EXPIRY_TEST=1 ./scripts/acceptance.sh # also waits for a real expiry (start backend with a short HOLD_DURATION_SECONDS)
 ```

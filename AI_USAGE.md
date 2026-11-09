@@ -1,72 +1,91 @@
 # AI_USAGE
 
-Draft — kept truthful and updated at the end of every phase.
+This document states honestly how AI was used on this project.
 
-## Tools used
-- Claude Code (model: Claude Sonnet 5.5) in VS Code, acting as pair-programmer/architect.
+## Summary
 
-## Tasks performed with AI
-| Phase | Task | Files |
+- **Tool:** Claude Code (Anthropic), model Claude Sonnet 5.5, used as a pair programmer inside VS Code.
+- **Extent:** the AI wrote essentially all of the source code, tests, configuration, scripts and documentation in this repository.
+  The project owner set the requirements (the assignment and master specification), controlled the process phase by phase,
+  made the open design decisions (D1–D6 in `PROJECT_SPECIFICATION.md` §11, including the security decision on
+  environment setup), approved each phase before the next began, and asked for each phase to be pushed to GitHub.
+- **Process:** eight phases (setup, database, backend, frontend, background services, testing, Docker validation, delivery).
+  After each phase the AI reported what it built, the real output of the tests it ran, and the problems it found.
+
+## What the AI was used for
+
+| Phase | Work done by the AI | Main files |
 |---|---|---|
-| Planning | Requirement analysis, schema design, concurrency strategy, roadmap | `PROJECT_SPECIFICATION.md`, `ASSUMPTIONS.md`, `CLAUDE.md`, `AI_USAGE.md` |
+| Planning | Requirement analysis, schema and API design, concurrency strategy, roadmap | `PROJECT_SPECIFICATION.md`, `ASSUMPTIONS.md`, `CLAUDE.md` |
+| 1 Setup | .NET solution and layered projects, Vite/React/TypeScript/Tailwind app, Dockerfiles, Compose, nginx | `backend/*`, `frontend/*`, `docker-compose.yml` |
+| 2 Database | Entities, EF Core mappings, migration with hand-written SQL (capacity trigger, case-insensitive name index), schema tests | `SchoolAdmission.Domain`, `Infrastructure/Persistence/*`, `Tests/Database/SchemaConstraintTests.cs` |
+| 3 Backend | Services, repository with `FOR UPDATE` locking, unit of work, controllers, exception handler, API and concurrency tests | `SchoolAdmission.Application/*`, `AdmissionRepository.cs`, `UnitOfWork.cs`, `SchoolAdmission.API/*`, `Tests/{Unit,Integration}/*` |
+| 4 Frontend | Entire React app: pages, features, hooks, API layer, server-time countdown, polling; Vitest tests | `frontend/src/*` |
+| 5 Background | `HoldExpirationService`, race tests against the sweeper | `Infrastructure/BackgroundServices/*`, `Tests/Integration/ExpirationTests.cs` |
+| 6 Testing | Gap-filling tests chosen from coverage reports, mutation checks, lint fixes | `RepositoryAndTransactionTests.cs`, `ApiHardeningTests.cs`, frontend `*.test.*` |
+| 7 Docker | Black-box acceptance script, clean-clone verification, log and hygiene fixes | `scripts/acceptance.sh` |
+| 8 Delivery and security | Fail-fast configuration, startup validator, security headers, secret scanner, final documentation | `EnvironmentValidator.cs`, `scripts/security-check.sh`, `nginx.conf`, `README.md` |
 
-(Rows are added as each phase is completed.)
+## Incorrect or risky AI output, and how it was found and fixed
 
-## Incorrect or risky AI suggestions and how they were handled
-None recorded yet. Planned-review items from the planning phase that the human reviewer should double-check:
-- A single `UNIQUE (class_id, student_id)` constraint would contradict "apply again after expiry"; replaced with a partial unique index (A6).
-- A plain partial unique index on `student_id WHERE status='HELD'` can be tripped by *expired-but-not-yet-swept* rows; the allocator expires the student's stale rows inside the transaction first.
+The AI made the following mistakes. Several were found only because the work was run for real, not because the code
+looked right.
 
-## Human review and testing
-To be filled in: what was manually read, run, and verified (with commands and real results) per phase.
+| # | Phase | Mistake | How it was found | Fix |
+|---|---|---|---|---|
+| 1 | Planning | A single `UNIQUE (class_id, student_id)` would contradict "apply again after expiry" | Review of the spec's own wording | Partial unique index that excludes EXPIRED rows |
+| 2 | Planning | A plain partial unique index on `student_id WHERE status='HELD'` is tripped by expired-but-unswept rows | Reasoning about the race | The allocator expires the student's stale holds inside the transaction first |
+| 3 | 1 | nginx config included a file (`proxy_params.inc`) that did not exist | Reading its own output before running | Inline proxy headers |
+| 4 | 1 | zsh expanded `8.0.*` in NuGet commands | The commands failed | Quoted version strings, then pinned exact versions |
+| 5 | 2 | EF Core silently merged the plain `student_id` index into the unique one, so a required index did not exist | Listing `pg_indexes` in the running database | Created in migration SQL; test `Required_indexes_exist` |
+| 6 | 2 | Floating package versions caused an EF version conflict | Build warning | Pinned versions |
+| 7 | 2 | A test expected SQLSTATE 23514 for an 18-digit id, but the `character(17)` column rejects it first (22001) | Test failure | Test accepts either rejection |
+| 8 | 3 | A seat query filtered on a constructor-built projection; EF could not translate it and every `GET /classes/{id}` returned 500 | 11 integration tests failed on the first run | Filter before projecting |
+| 9 | 3 | Throwing inside the confirm transaction would roll back the "mark EXPIRED" write | Reasoning during design review of the outcome handling | The service returns an outcome and throws after commit |
+| 10 | 3 | Default connection-pool settings left thin margin for 1,000 simultaneous requests | Timing the 1,000-request test | Explicit pool limits |
+| 11 | 4 | A test helper dropped providers on `rerender`, crashing a countdown test | Test failure | `wrapper` option |
+| 12 | 4 | The countdown showed `10:01` for a 600 s hold (HTTP `Date` header is truncated to whole seconds) | Driving the real UI in Chrome; unit tests did not catch it | Midpoint correction and floored display |
+| 13 | 5 | The "confirmation races the sweeper" test was not a race: the sweeper expired every hold first, so it always reported "0 confirmed, 60 lost" and could never fail | Printing the outcome distribution | One simultaneous confirm-versus-sweep release per hold; both outcomes now occur |
+| 14 | 6 | The first mutation attempt had a syntax error and never ran | Compiler errors | Redone correctly |
+| 15 | 6 | A header test silently skipped inputs (`catch { continue; }`); whitespace cases are untestable because HTTP strips them | Review after it passed on the first run | Asserts all inputs were sent |
+| 16 | 7 | `docker compose up --build` aborts without a `.env` | Running it exactly as an evaluator would | Reported as a decision; resolved by the owner (fail fast) |
+| 17 | 7 | `ASPNETCORE_URLS` duplicated the .NET 8 image's port setting and logged a warning on every start; EF logged every SQL command at Information | Reading container logs | Removed the variable; EF set to Warning |
+| 18 | 7 | The design-time DB factory carried a placeholder username/password | Secret scan of tracked files | Removed |
+| 19 | 8 | **The new secret scanner silently passed while scanning nothing**: a pattern starting with `-----BEGIN` was parsed as command-line options and the scans errored | A planted-secret test (the scanner was not trusted until it found a planted secret) | Patterns passed with `-e`; scanner errors now fail the run; a canary self-test runs first |
+| 20 | 8 | The history scan was case-sensitive and missed `POSTGRES_PASSWORD=…` while the tree scan found it | The same planted-secret test (secret committed, then deleted, so it exists only in history) | Case-insensitive; all three planted secrets are now found |
+| 21 | 8 | Two false failures in the new runtime checks: a loose pattern matched axios's `encodeBasicAuthUsername`, and `docker compose port` prints "invalid IP:0" for unpublished ports | Reading the failures | Tighter pattern; check `docker compose ps` for a host mapping |
+| 22 | 8 | The documented dev setup used port 5000, which macOS reserves for AirPlay, so it would fail on any Mac | Following the README's own instructions | Moved to 5080 |
 
-## Phase 1 (setup)
-- AI scaffolded the .NET solution, Vite app, Dockerfiles, compose and nginx config. Files: `backend/*`, `frontend/*`, `docker-compose.yml`, `.env.example`, `.gitignore`.
-- Issues caught during the phase: (1) first nginx draft included a non-existent `proxy_params.inc`; replaced by inline proxy headers. (2) Vite's template produced React 19 and TypeScript 7 (spec requires React 18+, so accepted). (3) zsh glob expansion broke `--version 8.0.*` NuGet arguments; fixed by quoting.
-- Verified by running: `dotnet build`, `npm run build`, `npm test`, `docker compose up --build`, and curl against `/`, `/dashboard`, `/health`, `/api/health`.
+## What was verified, and how
 
-## Phase 2 (database and domain)
-- AI wrote the entities, EF configurations, the `InitialCreate` migration (with hand-written SQL for the capacity trigger and the case-insensitive name index), the DB initializer and `SchemaConstraintTests`. Files: `backend/SchoolAdmission.Domain/*`, `backend/SchoolAdmission.Infrastructure/Persistence/*`, `backend/SchoolAdmission.Tests/Database/*`, `backend/SchoolAdmission.Tests/Support/*`.
-- Incorrect AI output found and fixed:
-  1. EF Core silently merged the plain `student_id` index with the filtered unique index on the same column, so the required `student_id` index was missing. Found by listing `pg_indexes` in the running database (not by the compiler); fixed with raw SQL in the migration plus a test (`Required_indexes_exist`).
-  2. Floating package versions (`8.0.*`) produced an EF Core version-conflict warning; pinned all versions.
-  3. A test expected SQLSTATE 23514 for an 18-digit student id, but `character(17)` rejects it earlier with 22001; test corrected (the database still rejects it).
-- Verified by running: `dotnet test` (28 tests against real PostgreSQL via Testcontainers), `dotnet ef migrations has-pending-model-changes`, and a `psql` insert surviving `docker compose down` / `up`.
+Verification means commands that were run, with their output read, not reasoning about the code.
 
-## Phase 3 (backend)
-- AI wrote the Application services, repository/unit of work, controllers, exception handler and all tests: `backend/SchoolAdmission.Application/*`, `backend/SchoolAdmission.Infrastructure/Persistence/{AdmissionRepository,UnitOfWork}.cs`, `backend/SchoolAdmission.API/*`, `backend/SchoolAdmission.Tests/{Unit,Integration,Support}/*`.
-- Incorrect AI output found and fixed:
-  1. The seat query filtered on a constructor-built record projection; EF could not translate it and every `GET /classes/{id}` returned 500. Found by the integration tests (11 failed on the first run); fixed by filtering the entity query before projecting.
-  2. Throwing inside the confirm transaction would have rolled back the "mark EXPIRED" write; the service now returns an outcome and throws after commit (A23).
-  3. Default Npgsql pool settings left thin margin for 1,000 simultaneous requests; pool limits made explicit (A21).
-- Verified by running: `dotnet test` (90 tests; unit tests use a fake repository, integration and concurrency tests use real PostgreSQL), the concurrency tests six times in a row, and a curl walk-through of all 8 endpoints through nginx in Docker.
-- Observed but not explained: one of six repeated concurrency runs took 21 s instead of ~2 s (all passed). Not yet investigated.
+- **Automated:** 136 backend tests (real PostgreSQL via Testcontainers) and 92 frontend tests, repeated several times
+  to detect flakiness; type-check, lint and production build clean. Test sensitivity was checked by **mutation**:
+  with the seat-count query and the capacity trigger disabled, the concurrency tests fail (120 holds created for
+  10 seats); with time-based expiry disabled or the poll timer left running, the matching frontend tests fail.
+- **Black-box:** `scripts/acceptance.sh` against stacks built from fresh `git clone`s, including 120 simultaneous
+  requests against 10 seats and a real expiry run.
+- **Browser:** a Playwright script drove the real UI in Chrome: admin and parent flows, reload persistence, simulated
+  payment, expiry with no reload, and six separate browsers racing for one seat.
+- **Restart and persistence:** backend restarts, a backend that was down while a hold expired, and
+  `docker compose down` / `up --build` without `-v`.
+- **Security:** `scripts/security-check.sh` (after proving it detects planted secrets), plus failure-mode checks of
+  Compose and the backend when configuration is missing, empty or malformed.
+- Full commands and results: `PROJECT_SPECIFICATION.md` §13 and the README.
 
-## Phase 4 (frontend)
-- AI wrote the whole React app and its tests: `frontend/src/{api,components,features,hooks,layouts,pages,utils,test}/*`, `App.tsx`.
-- Incorrect AI output found and fixed:
-  1. The test helper wrapped the element in providers, so `rerender()` dropped them and a countdown test crashed; changed to the `wrapper` option.
-  2. The first countdown displayed `10:01` for a 600 s hold. Found only by driving the real UI in Chrome (not by the unit tests): the HTTP `Date` header is truncated to whole seconds, so the server-clock offset was up to 1 s off. Fixed by centring the offset and flooring the display (A24).
-- Verified by running: `npm test` (65 tests), `tsc -b`, `npm run build`, and a Playwright script (system Chrome, kept outside the repo) that drove the Docker stack end to end: admin creates a class and sees validation, invalid/valid student id, apply, countdown, reload restore, simulated payment, fresh-browser restore from the database, cancel. No console errors.
-- Not verified yet: real expiry in the browser (needs a short `HOLD_DURATION_SECONDS`, Phase 5), screenshots below ~500 px width (headless Chrome's minimum window), and screen-reader behaviour (only roles/labels checked via tests).
+## Limits of this verification (what the AI could not establish)
 
-## Phase 5 (background expiration)
-- AI wrote `HoldExpirationService`, its options/registration, and `ExpirationTests`.
-- Incorrect AI output found and fixed: the first "confirmation races the sweeper" test was not a race. The sweeper loop started 50 ms before the confirmations, so it expired all 60 holds first and every run reported "0 confirmed, 60 lost". It would have passed forever while proving nothing. Found by printing the outcome distribution; rewritten as one simultaneous confirm-vs-sweep release per hold. Now both sides win in every run (confirm won 54–67 of 80 rounds, sweeper 13–26) and the invariant holds (200 ⇒ CONFIRMED, 409 ⇒ EXPIRED).
-- Verified by running: `dotnet test` ×3 (96 passed each time), and on the real Docker stack with `HOLD_DURATION_SECONDS=20`: the browser UI flipped to EXPIRED by itself (no reload), seat freed and re-appliable; backend restart mid-hold; backend stopped while a hold expired then catch-up sweep on start (~2 s); `docker compose down`/`up` kept HELD→EXPIRED and CONFIRMED data. `.env` was restored to 600 s / 5 s afterwards.
-- Not verified: behaviour with multiple backend instances (ASSUMPTIONS A11/A14 assume one).
+- Everything was run on **macOS with Docker Desktop**. Linux and Windows hosts were not tested.
+- The AI's browser tests exercise behaviour; they do not replace a human judging the visual design, copy, or usability.
+- Screen-reader behaviour was checked only through roles and labels in tests.
+- Multiple backend replicas, TLS, and production-scale load were not tested.
+- Some timings (one test run that took 43 s against ~22 s for the others, and an earlier 21 s versus 2 s) were not
+  explained; every run passed.
 
-## Phase 6 (consolidated testing)
-- AI added `RepositoryAndTransactionTests`, `ApiHardeningTests`, a mid-burst observer concurrency test, and frontend `api/admission.test`, `components.test`, `Dashboard.test`; refactored `usePolledResource`, `Toast` and `useStudent` to clear lint warnings. Gaps were chosen from a coverage report, not guessed.
-- Checks that the new tests can actually fail (done because they all passed first time, which proves nothing by itself):
-  - Backend mutation: replaced the seat count with `0` and disabled the capacity trigger → 4 of 7 concurrency tests failed with 120 holds created for 10 seats and 1000 for 120. Source restored from git.
-  - Frontend mutations: time-based expiry disabled → 3 tests failed; poll timer cleanup removed → 2 tests failed. Files restored.
-- Incorrect AI output found: (1) my first mutation attempt had a syntax error and never ran (noticed from compiler errors; redone with a regex edit). (2) A header test silently skipped inputs via `catch { continue; }`, and its whitespace cases are untestable because HTTP strips leading/trailing spaces from header values; rewritten to assert all four inputs were actually sent.
-- Final results (run as written): backend 113 passed (3 consecutive runs); frontend 92 passed (3 consecutive runs); `tsc -b`, `oxlint` and `vite build` clean. Coverage: frontend 94.4% statements / 96.8% lines; backend lines — Application 97.1%, API 94.2%, Domain 91.4%, Infrastructure 72.7%.
-- Not covered / known limits: `DatabaseInitializer` retry loop and `DesignTimeDbContextFactory` (tooling) have no tests; the 499 client-abort path in `GlobalExceptionHandler` is untested. The first backend run in a series once took 43 s against ~22 s for the others (and an earlier run took 21 s vs ~2 s); all passed, cause not found.
+## Human review
 
-## Phase 7 (Docker acceptance)
-- AI wrote `scripts/acceptance.sh` and the throw-away Playwright scripts (kept outside the repo), ran the cold-clone verification, and fixed what it found.
-- Findings and fixes: (1) `docker compose up --build` without a `.env` aborts (by design, to avoid a hard-coded DB password) — flagged as a decision, not silently changed. (2) The Dockerfile's `ASPNETCORE_URLS` duplicated the .NET 8 image's `HTTP_PORTS` and logged a warning at every start; removed. (3) EF logged every SQL command at Information, which together with the sweeper would flood production logs; EF set to Warning. (4) The design-time DbContext factory carried a placeholder user/password; removed so no credential-shaped string is in source.
-- Verified by running (not by reasoning): see PROJECT_SPECIFICATION §12 for the table of commands and results.
-- Not verified: Linux/Windows hosts (everything ran on macOS + Docker Desktop); `scripts/acceptance.sh` was only run on macOS bash 3.2/curl; build time on a slow connection; behaviour with multiple backend replicas.
+This file cannot truthfully claim that a person read every line of code, because the AI did not observe that.
+What is on record is the owner's direction and approvals: they wrote the specification, resolved decisions D1–D6,
+approved each phase after reading its report, requested the security hardening, and requested the pushes.
+The project owner should add here anything they personally reviewed, ran, or changed beyond that.
