@@ -2,7 +2,7 @@ import { useForm } from 'react-hook-form'
 import { Loader2, Plus } from 'lucide-react'
 import { createClass } from '../../api/admission'
 import { toUserMessage } from '../../api/errors'
-import { useToast } from '../../components/Toast'
+import { useToast } from '../../components/useToast'
 
 interface FormValues {
   name: string

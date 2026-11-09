@@ -7,10 +7,17 @@ export interface PolledResource<T> {
   refresh: () => Promise<void>
 }
 
+interface State<T> {
+  key: unknown
+  data: T | null
+  error: unknown
+  loading: boolean
+}
+
 /**
  * Fetches immediately, then every `intervalMs` while the tab is visible (and again when it becomes
  * visible). Stale responses are dropped; timers and listeners are removed on unmount.
- * Changing `resetKey` (e.g. the student id) clears the data and refetches.
+ * Changing `resetKey` (e.g. the student id) discards the old data and refetches.
  */
 export function usePolledResource<T>(
   fetcher: () => Promise<T>,
@@ -18,38 +25,34 @@ export function usePolledResource<T>(
   resetKey: unknown = null,
   enabled = true,
 ): PolledResource<T> {
-  const [data, setData] = useState<T | null>(null)
-  const [error, setError] = useState<unknown>(null)
-  const [loading, setLoading] = useState(true)
+  const [state, setState] = useState<State<T>>({ key: resetKey, data: null, error: null, loading: true })
   const fetcherRef = useRef(fetcher)
+  const keyRef = useRef(resetKey)
   const requestId = useRef(0)
   const mounted = useRef(false)
 
   useEffect(() => {
     fetcherRef.current = fetcher
+    keyRef.current = resetKey
   })
 
   const refresh = useCallback(async () => {
     const id = ++requestId.current
+    const key = keyRef.current
     try {
       const result = await fetcherRef.current()
+      if (mounted.current && id === requestId.current) setState({ key, data: result, error: null, loading: false })
+    } catch (error) {
+      // Keep showing the last good data for this key; only surface the error.
       if (mounted.current && id === requestId.current) {
-        setData(result)
-        setError(null)
+        setState((prev) => ({ key, data: prev.key === key ? prev.data : null, error, loading: false }))
       }
-    } catch (e) {
-      if (mounted.current && id === requestId.current) setError(e)
-    } finally {
-      if (mounted.current && id === requestId.current) setLoading(false)
     }
   }, [])
 
   useEffect(() => {
     mounted.current = true
     if (!enabled) return
-    setData(null)
-    setError(null)
-    setLoading(true)
     void refresh()
 
     const tick = () => {
@@ -64,5 +67,7 @@ export function usePolledResource<T>(
     }
   }, [enabled, intervalMs, refresh, resetKey])
 
-  return { data, error, loading, refresh }
+  // Derived during render: data from a previous key is never shown for the new one.
+  const current = state.key === resetKey ? state : { data: null, error: null, loading: true }
+  return { data: current.data, error: current.error, loading: current.loading, refresh }
 }

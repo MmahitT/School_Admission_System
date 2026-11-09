@@ -4,7 +4,7 @@ import { cancelHold, confirmHold } from '../../api/admission'
 import { toUserMessage } from '../../api/errors'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Skeleton } from '../../components/Skeleton'
-import { useToast } from '../../components/Toast'
+import { useToast } from '../../components/useToast'
 import type { MyHold } from '../../types/api'
 import { HoldCard } from './HoldCard'
 

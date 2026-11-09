@@ -47,6 +47,13 @@ describe('student identification and persistence', () => {
     expect(Object.keys(window.localStorage)).toEqual(['studentId']) // only the id is stored locally
   })
 
+  it('landing page pre-fills the saved id ("welcome back")', () => {
+    window.localStorage.setItem('studentId', STUDENT)
+    renderApp('/')
+    expect(screen.getByLabelText(/birth registration number/i)).toHaveValue(STUDENT)
+    expect(screen.getByText(/welcome back/i)).toBeInTheDocument()
+  })
+
   it('redirects to the landing page when no student is saved', async () => {
     renderApp('/dashboard')
     expect(await screen.findByLabelText(/birth registration number/i)).toBeInTheDocument()

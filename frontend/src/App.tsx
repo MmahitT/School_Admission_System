@@ -1,6 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { ToastProvider } from './components/Toast'
-import { StudentProvider } from './hooks/useStudent'
+import { StudentProvider } from './hooks/StudentProvider'
 import { AppLayout } from './layouts/AppLayout'
 import AdminPage from './pages/AdminPage'
 import DashboardPage from './pages/DashboardPage'

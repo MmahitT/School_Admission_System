@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
-import { useToast } from '../../components/Toast'
+import { useToast } from '../../components/useToast'
 import { createHold } from '../../api/admission'
 import { toUserMessage } from '../../api/errors'
 import type { AdmissionClass, HoldStatus, MyHold } from '../../types/api'

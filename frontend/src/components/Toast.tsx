@@ -1,5 +1,6 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { AlertCircle, CheckCircle2, Info, X } from 'lucide-react'
+import { ToastContext, type ToastApi } from './useToast'
 
 type Kind = 'success' | 'error' | 'info'
 interface ToastItem {
@@ -7,13 +8,6 @@ interface ToastItem {
   kind: Kind
   message: string
 }
-interface ToastApi {
-  success: (message: string) => void
-  error: (message: string) => void
-  info: (message: string) => void
-}
-
-const ToastContext = createContext<ToastApi | null>(null)
 const DISMISS_AFTER_MS = 6000
 
 const STYLES: Record<Kind, string> = {
@@ -84,10 +78,4 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       </div>
     </ToastContext.Provider>
   )
-}
-
-export function useToast(): ToastApi {
-  const ctx = useContext(ToastContext)
-  if (!ctx) throw new Error('useToast must be used inside <ToastProvider>')
-  return ctx
 }
